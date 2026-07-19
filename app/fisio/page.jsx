@@ -6,6 +6,23 @@ import { sections, exercises, weekPrograms } from '@/lib/data';
 import Toast from '@/components/Toast';
 import Notifications from '@/components/Notifications';
 
+// Anamnesis (la completa el paciente) — mismas claves que app/paciente
+const AN_FIELDS = [
+  ['reason','Motivo de consulta'], ['since','¿Desde cuándo?'], ['origin','¿Cómo comenzó?'],
+  ['painMov','Dolor al moverse (0-10)'], ['aggrav','¿Qué lo empeora?'], ['relief','¿Qué lo alivia?'],
+  ['history','Antecedentes (enfermedades, cirugías, medicamentos)'], ['activity','Actividad física / trabajo'],
+];
+// Evaluación fisioterapéutica (la completa el fisio)
+const EVAL_FIELDS = [
+  ['inspection','Inspección / observación'], ['palpation','Palpación'],
+  ['rom','Rango de movimiento (ROM)'], ['strength','Fuerza muscular'], ['special_tests','Pruebas especiales'],
+];
+// Diagnóstico, pronóstico y plan (la completa el fisio)
+const DX_FIELDS = [
+  ['diagnosis','Diagnóstico fisioterapéutico'], ['prognosis','Pronóstico'],
+  ['goals','Objetivos del tratamiento'], ['plan','Plan de tratamiento'],
+];
+
 export default function Fisio() {
   const [user, setUser] = useState(null);
   const [patients, setPatients] = useState([]);
@@ -25,6 +42,9 @@ export default function Fisio() {
   const [weekAssign, setWeekAssign] = useState(null);
   const [selProgram, setSelProgram] = useState('');
   const [unassigned, setUnassigned] = useState([]);
+  const [evalData, setEvalData] = useState({});
+  const [dxData, setDxData] = useState({});
+  const [savingEval, setSavingEval] = useState(false);
   const router = useRouter();
   const showToast = m => { setToast(m); setTimeout(() => setToast(''), 2800); };
 
@@ -101,6 +121,26 @@ export default function Fisio() {
     const { data: wa } = await supabase.from('week_assignments').select('*').eq('patient_id', pt.id).maybeSingle();
     setWeekAssign(wa || null);
     setSelProgram(wa?.program_id || '');
+    const { data: ev } = await supabase.from('evaluations').select('*').eq('patient_id', pt.id).maybeSingle();
+    setEvalData(ev?.eval_data || {});
+    setDxData(ev?.diagnosis || {});
+  }
+
+  async function saveEvaluation() {
+    setSavingEval(true);
+    await supabase.from('evaluations').upsert({
+      patient_id: selPt.id, eval_data: evalData, diagnosis: dxData, updated_at: new Date().toISOString()
+    });
+    // reflejar el diagnóstico en la ficha (texto corto de la lista)
+    if (dxData.diagnosis) {
+      await supabase.from('patients').update({ diagnosis: dxData.diagnosis }).eq('id', selPt.id);
+      setSelPt({ ...selPt, diagnosis: dxData.diagnosis });
+    }
+    if (selPt.user_id) await supabase.from('notifications').insert({
+      user_id: selPt.user_id, title: '🩺 Evaluación actualizada',
+      sub: 'Tu fisioterapeuta registró tu evaluación y plan', kind: 'general'
+    });
+    setSavingEval(false); showToast('✓ Evaluación guardada'); init();
   }
 
   async function assignProgram() {
@@ -282,6 +322,54 @@ export default function Fisio() {
           <button className="btn-ol" onClick={()=>setSelPt(null)} style={{marginBottom:18}}>← Pacientes</button>
           <h2>{selPt.name}</h2>
           <p style={{color:'var(--grey)',fontSize:'.85rem',marginBottom:20}}>{selPt.diagnosis}</p>
+
+          <div className="card" style={{marginBottom:16}}>
+            <h3 style={{fontSize:'.75rem',letterSpacing:'.15em',textTransform:'uppercase',color:'var(--grey)',marginBottom:12}}>
+              📋 Historia clínica y evaluación
+            </h3>
+
+            <details open style={{marginBottom:14}}>
+              <summary style={{cursor:'pointer',fontWeight:600,fontSize:'.85rem'}}>
+                Anamnesis del paciente {selPt.anamnesis
+                  ? <span style={{color:'var(--ok)',fontSize:'.72rem'}}>· ✓ completada</span>
+                  : <span style={{color:'var(--danger)',fontSize:'.72rem'}}>· pendiente</span>}
+              </summary>
+              {selPt.anamnesis ? (
+                <div style={{marginTop:10,display:'flex',flexDirection:'column',gap:8}}>
+                  {AN_FIELDS.map(([k,label]) => (
+                    <div key={k}>
+                      <p style={{fontSize:'.66rem',color:'var(--grey)',textTransform:'uppercase',letterSpacing:'.05em'}}>{label}</p>
+                      <p style={{fontSize:'.85rem'}}>{selPt.anamnesis[k] ? selPt.anamnesis[k] : <span style={{color:'var(--grey)'}}>—</span>}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{marginTop:8,fontSize:'.8rem',color:'var(--grey)'}}>
+                  El paciente aún no completó su anamnesis (la llena desde su panel → Historia clínica).
+                </p>
+              )}
+            </details>
+
+            <p style={{fontSize:'.7rem',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--grey)',margin:'6px 0 8px'}}>Evaluación fisioterapéutica</p>
+            {EVAL_FIELDS.map(([k,label]) => (
+              <div key={k} style={{marginBottom:8}}>
+                <label style={{fontSize:'.72rem',color:'var(--grey)'}}>{label}</label>
+                <textarea rows={2} value={evalData[k]||''} onChange={e=>setEvalData({...evalData,[k]:e.target.value})} />
+              </div>
+            ))}
+
+            <p style={{fontSize:'.7rem',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--grey)',margin:'12px 0 8px'}}>Diagnóstico, pronóstico y plan</p>
+            {DX_FIELDS.map(([k,label]) => (
+              <div key={k} style={{marginBottom:8}}>
+                <label style={{fontSize:'.72rem',color:'var(--grey)'}}>{label}</label>
+                <textarea rows={2} value={dxData[k]||''} onChange={e=>setDxData({...dxData,[k]:e.target.value})} />
+              </div>
+            ))}
+
+            <button className="btn" onClick={saveEvaluation} disabled={savingEval} style={{marginTop:6}}>
+              {savingEval ? 'Guardando…' : '💾 Guardar evaluación'}
+            </button>
+          </div>
 
           <div className="card" style={{marginBottom:16}}>
             <h3 style={{fontSize:'.75rem',letterSpacing:'.15em',textTransform:'uppercase',color:'var(--grey)',marginBottom:12}}>

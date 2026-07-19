@@ -1,0 +1,14 @@
+# dependencias
+/node_modules
+
+# build de Next.js
+/.next
+/out
+
+# variables de entorno (se configuran en Vercel, no se suben)
+.env.local
+.env*.local
+
+# logs y sistema
+npm-debug.log*
+.DS_Store

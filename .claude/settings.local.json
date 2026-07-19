@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(npm install *)",
+      "PowerShell(node --version)",
+      "PowerShell(npm --version)",
+      "PowerShell(winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements --silent)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\('Path','Machine'\\) + ';' + [System.Environment]::GetEnvironmentVariable\\('Path','User'\\); node --version; npm --version)",
+      "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\('Path','Machine'\\) + ';' + [System.Environment]::GetEnvironmentVariable\\('Path','User'\\); Set-Location \"C:\\\\Users\\\\fesal\\\\Desktop\\\\momentum-next\"; npm install)",
+      "Read(//c/Users/fesal/.claude/projects/C--Users-fesal-Desktop-momentum-next/memory//**)",
+      "Read(//c/Users/fesal/.claude/projects/C--Users-fesal-Desktop-momentum-next/memory/**)"
+    ]
+  }
+}

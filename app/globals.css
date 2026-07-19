@@ -1,0 +1,11 @@
+:root{--black:#1a1a1a;--white:#f0f0ee;--grey:#8a8a88;--dim:#333;--accent:#e0e0de;--adim:rgba(224,224,222,.08);--card:#212121;--border:#2c2c2c;--danger:#e07070;--ok:#8fd8a8}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--black);color:var(--white);font-family:'Switzer','Familjen Grotesk',sans-serif;min-height:100vh}
+h1,h2,h3,.logo{font-family:'Familjen Grotesk',sans-serif}
+button{cursor:pointer;font-family:inherit}
+input,select,textarea{background:#0d0d0d;border:1px solid var(--dim);color:var(--white);font-family:inherit;font-size:.9rem;padding:11px 14px;border-radius:9px;outline:none;width:100%}
+.btn{background:var(--accent);color:#1a1a1a;border:none;padding:12px 22px;border-radius:9px;font-weight:600;font-size:.85rem}
+.btn-ol{background:none;border:1px solid var(--dim);color:var(--grey);padding:11px 20px;border-radius:9px;font-size:.85rem}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px}
+.logo{font-size:1.7rem}
+.logo .w4{font-weight:400}.logo .w6{font-weight:600}.logo .w7{font-weight:700}

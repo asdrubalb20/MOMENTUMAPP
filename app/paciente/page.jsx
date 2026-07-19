@@ -48,17 +48,14 @@ export default function Paciente() {
     if (!user) return router.push('/');
     let { data: p } = await supabase.from('patients').select('*').eq('user_id', user.id).maybeSingle();
     if (!p) {
-      // auto-crear ficha enlazada al primer fisio disponible
+      // auto-crear ficha SIN fisio (un fisioterapeuta la reclamará después)
       const { data: prof } = await supabase.from('profiles').select('name,phone,dob').eq('id', user.id).maybeSingle();
-      const { data: fisios } = await supabase.from('profiles').select('id').eq('role','fisio').limit(1);
-      if (fisios?.length) {
-        const { data: created } = await supabase.from('patients').insert({
-          user_id: user.id, fisio_id: fisios[0].id, name: prof?.name || user.email,
-          phone: prof?.phone || '', email: user.email,
-          age: prof?.dob ? Math.floor((Date.now()-new Date(prof.dob))/31557600000) : null
-        }).select().single();
-        p = created;
-      }
+      const { data: created } = await supabase.from('patients').insert({
+        user_id: user.id, fisio_id: null, name: prof?.name || user.email,
+        phone: prof?.phone || '', email: user.email,
+        age: prof?.dob ? Math.floor((Date.now()-new Date(prof.dob))/31557600000) : null
+      }).select().single();
+      p = created;
     }
     if (!p) return;
     setPt(p);
@@ -84,7 +81,7 @@ export default function Paciente() {
       await supabase.from('week_logs').insert({
         patient_id: pt.id, program_id: weekProg.program_id, week: w, workout_idx: wo, date: today()
       });
-      await supabase.from('notifications').insert({
+      if (pt.fisio_id) await supabase.from('notifications').insert({
         user_id: pt.fisio_id, title: '📆 Entrenamiento completado',
         sub: `${pt.name} completó un entrenamiento de "${weekPrograms[weekProg.program_id]?.name}"`, kind: 'completion'
       });
@@ -98,7 +95,7 @@ export default function Paciente() {
       patient_id: pt.id, ex_id: ex.id, section_id: ex.sectionId,
       date: today(), pain, note, feeling: ''
     });
-    await supabase.from('notifications').insert({
+    if (pt.fisio_id) await supabase.from('notifications').insert({
       user_id: pt.fisio_id, title: '💪 Ejercicio completado',
       sub: `${pt.name} completó: ${ex.name}${pain>0?` · Dolor ${pain}/10`:''}`, kind: 'completion'
     });
@@ -108,7 +105,7 @@ export default function Paciente() {
 
   async function saveAnam() {
     await supabase.from('patients').update({ anamnesis: anam }).eq('id', pt.id);
-    await supabase.from('notifications').insert({ user_id: pt.fisio_id,
+    if (pt.fisio_id) await supabase.from('notifications').insert({ user_id: pt.fisio_id,
       title: '📋 Anamnesis completada', sub: `${pt.name} completó su anamnesis`, kind: 'general' });
     setPt({ ...pt, anamnesis: anam }); setAnam(null);
     showToast('✓ Anamnesis enviada a tu fisioterapeuta');
@@ -143,6 +140,16 @@ export default function Paciente() {
       </header>
 
       <h2 style={{marginBottom:14}}>Hola, {pt.name.split(' ')[0]}</h2>
+
+      {!pt.fisio_id && (
+        <div className="card" style={{marginBottom:16,borderColor:'var(--accent)'}}>
+          <strong>⏳ Aún no tienes fisioterapeuta asignado</strong>
+          <p style={{fontSize:'.78rem',color:'var(--grey)',marginTop:6}}>
+            En cuanto un fisioterapeuta te registre como su paciente, verás aquí tus ejercicios y programa.
+            Mientras tanto puedes ir completando tu <strong>Historia clínica</strong>.
+          </p>
+        </div>
+      )}
 
       <div style={{display:'flex',gap:8,marginBottom:18}}>
         {[['ejercicios','🏋️ Ejercicios'],['programa','📆 Programa'],['historia','📋 Historia']].map(([k,l]) => (

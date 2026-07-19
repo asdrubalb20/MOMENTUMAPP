@@ -24,6 +24,7 @@ export default function Fisio() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [weekAssign, setWeekAssign] = useState(null);
   const [selProgram, setSelProgram] = useState('');
+  const [unassigned, setUnassigned] = useState([]);
   const router = useRouter();
   const showToast = m => { setToast(m); setTimeout(() => setToast(''), 2800); };
 
@@ -50,6 +51,19 @@ export default function Fisio() {
     const aq = supabase.from('appointments').select('*').gte('date', new Date().toISOString().split('T')[0]).order('date').order('time').limit(10);
     const { data: ap } = isAdmin ? await aq : await aq.eq('fisio_id', user.id);
     setAppts(ap || []);
+    // pacientes registrados sin fisioterapeuta (pool para reclamar)
+    const { data: un } = await supabase.from('patients').select('*').is('fisio_id', null).order('created_at');
+    setUnassigned(un || []);
+  }
+
+  async function claimPatient(pt) {
+    await supabase.from('patients').update({ fisio_id: user.id }).eq('id', pt.id);
+    if (pt.user_id) await supabase.from('notifications').insert({
+      user_id: pt.user_id, title: '👩‍⚕️ Fisioterapeuta asignado',
+      sub: `${profile?.name || 'Un fisioterapeuta'} te registró como su paciente`, kind: 'general'
+    });
+    showToast(`✓ Ahora atiendes a ${pt.name}`);
+    init();
   }
 
   function buildDose(ex) {
@@ -185,6 +199,22 @@ export default function Fisio() {
               <button className="btn" style={{padding:'8px 14px',fontSize:'.75rem'}} onClick={addAppt}>+ Cita</button>
             </div>
           </div>
+
+          {unassigned.length > 0 && (
+            <div className="card" style={{marginBottom:16,borderColor:'var(--accent)'}}>
+              <strong style={{fontSize:'.85rem'}}>🆕 Pacientes sin asignar ({unassigned.length})</strong>
+              <p style={{fontSize:'.72rem',color:'var(--grey)',margin:'4px 0 10px'}}>Se registraron pero aún nadie los atiende. Marca a los que atiendes tú.</p>
+              {unassigned.map(p => (
+                <div key={p.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderTop:'1px solid var(--border)'}}>
+                  <div>
+                    <strong style={{fontSize:'.9rem'}}>{p.name}</strong>
+                    <p style={{fontSize:'.72rem',color:'var(--grey)'}}>{p.age ? `${p.age} años · ` : ''}{p.email || ''}</p>
+                  </div>
+                  <button className="btn" style={{padding:'8px 14px',fontSize:'.75rem'}} onClick={()=>claimPatient(p)}>✓ Yo lo atiendo</button>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
             <h2>Pacientes</h2>

@@ -32,7 +32,7 @@ export default function Fisio() {
   const [freq, setFreq] = useState('3x/semana');
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState(null);
-  const [metrics, setMetrics] = useState({pts:0,sess:0});
+  const [metrics, setMetrics] = useState({pts:0,today:0});
   const [customs, setCustoms] = useState([]);
   const [appts, setAppts] = useState([]);
   const [newEx, setNewEx] = useState(null);
@@ -41,7 +41,7 @@ export default function Fisio() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [weekAssign, setWeekAssign] = useState(null);
   const [selProgram, setSelProgram] = useState('');
-  const [unassigned, setUnassigned] = useState([]);
+  const [attToday, setAttToday] = useState([]);
   const [evalData, setEvalData] = useState({});
   const [dxData, setDxData] = useState({});
   const [savingEval, setSavingEval] = useState(false);
@@ -57,33 +57,34 @@ export default function Fisio() {
     const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single();
     setProfile(prof);
     const isAdmin = prof?.role === 'admin';
-    const q = supabase.from('patients').select('*').order('created_at');
-    const { data } = isAdmin ? await q : await q.eq('fisio_id', user.id);
+    const today = new Date().toISOString().split('T')[0];
+    // clínica compartida: todos los fisios ven a TODOS los pacientes
+    const { data } = await supabase.from('patients').select('*').order('created_at');
     setPatients(data || []);
-    // métricas del mes
-    const first = new Date(); first.setDate(1);
-    const iso = first.toISOString().split('T')[0];
-    const sq = supabase.from('sessions').select('id',{count:'exact',head:true}).gte('date', iso);
-    const { count } = isAdmin ? await sq : await sq.eq('fisio_id', user.id);
-    setMetrics({ pts: (data||[]).length, sess: count||0 });
+    // asistencias que YO marqué hoy
+    const { data: att } = await supabase.from('attendance').select('patient_id').eq('fisio_id', user.id).eq('date', today);
+    const ids = (att || []).map(a => a.patient_id);
+    setAttToday(ids);
+    setMetrics({ pts: (data||[]).length, today: ids.length });
     const { data: ce } = await supabase.from('custom_exercises').select('*');
     setCustoms(ce || []);
-    const aq = supabase.from('appointments').select('*').gte('date', new Date().toISOString().split('T')[0]).order('date').order('time').limit(10);
+    const aq = supabase.from('appointments').select('*').gte('date', today).order('date').order('time').limit(10);
     const { data: ap } = isAdmin ? await aq : await aq.eq('fisio_id', user.id);
     setAppts(ap || []);
-    // pacientes registrados sin fisioterapeuta (pool para reclamar)
-    const { data: un } = await supabase.from('patients').select('*').is('fisio_id', null).order('created_at');
-    setUnassigned(un || []);
   }
 
-  async function claimPatient(pt) {
-    await supabase.from('patients').update({ fisio_id: user.id }).eq('id', pt.id);
-    if (pt.user_id) await supabase.from('notifications').insert({
-      user_id: pt.user_id, title: '👩‍⚕️ Fisioterapeuta asignado',
-      sub: `${profile?.name || 'Un fisioterapeuta'} te registró como su paciente`, kind: 'general'
-    });
-    showToast(`✓ Ahora atiendes a ${pt.name}`);
-    init();
+  async function toggleAttendance(pt) {
+    const today = new Date().toISOString().split('T')[0];
+    if (attToday.includes(pt.id)) {
+      await supabase.from('attendance').delete().eq('patient_id', pt.id).eq('fisio_id', user.id).eq('date', today);
+      setAttToday(a => a.filter(id => id !== pt.id));
+      setMetrics(m => ({ ...m, today: m.today - 1 }));
+    } else {
+      await supabase.from('attendance').insert({ patient_id: pt.id, fisio_id: user.id, date: today });
+      setAttToday(a => [...a, pt.id]);
+      setMetrics(m => ({ ...m, today: m.today + 1 }));
+      showToast(`✓ Atendiste a ${pt.name} hoy`);
+    }
   }
 
   function buildDose(ex) {
@@ -213,7 +214,7 @@ export default function Fisio() {
             </div>
             <div style={{display:'flex',gap:20,textAlign:'center'}}>
               <div><div style={{fontSize:'1.6rem',fontWeight:700}}>{metrics.pts}</div><div style={{fontSize:'.62rem',color:'var(--grey)',textTransform:'uppercase',letterSpacing:'.1em'}}>Pacientes</div></div>
-              <div><div style={{fontSize:'1.6rem',fontWeight:700}}>{metrics.sess}</div><div style={{fontSize:'.62rem',color:'var(--grey)',textTransform:'uppercase',letterSpacing:'.1em'}}>Sesiones/mes</div></div>
+              <div><div style={{fontSize:'1.6rem',fontWeight:700}}>{metrics.today}</div><div style={{fontSize:'.62rem',color:'var(--grey)',textTransform:'uppercase',letterSpacing:'.1em'}}>Atendidos hoy</div></div>
             </div>
           </div>
 
@@ -239,22 +240,6 @@ export default function Fisio() {
               <button className="btn" style={{padding:'8px 14px',fontSize:'.75rem'}} onClick={addAppt}>+ Cita</button>
             </div>
           </div>
-
-          {unassigned.length > 0 && (
-            <div className="card" style={{marginBottom:16,borderColor:'var(--accent)'}}>
-              <strong style={{fontSize:'.85rem'}}>🆕 Pacientes sin asignar ({unassigned.length})</strong>
-              <p style={{fontSize:'.72rem',color:'var(--grey)',margin:'4px 0 10px'}}>Se registraron pero aún nadie los atiende. Marca a los que atiendes tú.</p>
-              {unassigned.map(p => (
-                <div key={p.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderTop:'1px solid var(--border)'}}>
-                  <div>
-                    <strong style={{fontSize:'.9rem'}}>{p.name}</strong>
-                    <p style={{fontSize:'.72rem',color:'var(--grey)'}}>{p.age ? `${p.age} años · ` : ''}{p.email || ''}</p>
-                  </div>
-                  <button className="btn" style={{padding:'8px 14px',fontSize:'.75rem'}} onClick={()=>claimPatient(p)}>✓ Yo lo atiendo</button>
-                </div>
-              ))}
-            </div>
-          )}
 
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
             <h2>Pacientes</h2>
@@ -312,7 +297,14 @@ export default function Fisio() {
                 <strong>{p.name}</strong>
                 <p style={{fontSize:'.78rem',color:'var(--grey)'}}>{p.age ? `${p.age} años · ` : ''}{p.diagnosis}</p>
               </div>
-              <span style={{color:'var(--grey)'}}>›</span>
+              <div style={{display:'flex',alignItems:'center',gap:12}} onClick={e=>e.stopPropagation()}>
+                <button onClick={()=>toggleAttendance(p)}
+                  className={attToday.includes(p.id) ? 'btn' : 'btn-ol'}
+                  style={{padding:'7px 12px',fontSize:'.72rem',...(attToday.includes(p.id)?{}:{color:'var(--ok)',borderColor:'var(--ok)'})}}>
+                  {attToday.includes(p.id) ? '✓ Atendido hoy' : '+ Atendí hoy'}
+                </button>
+                <span style={{color:'var(--grey)'}}>›</span>
+              </div>
             </div>
           ))}
           {!filtered.length && <p style={{color:'var(--grey)'}}>No hay pacientes aún. Se crean al registrarse con su correo.</p>}

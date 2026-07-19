@@ -81,8 +81,8 @@ export default function Paciente() {
       await supabase.from('week_logs').insert({
         patient_id: pt.id, program_id: weekProg.program_id, week: w, workout_idx: wo, date: today()
       });
-      if (pt.fisio_id) await supabase.from('notifications').insert({
-        user_id: pt.fisio_id, title: '📆 Entrenamiento completado',
+      if (weekProg?.assigned_by) await supabase.from('notifications').insert({
+        user_id: weekProg.assigned_by, title: '📆 Entrenamiento completado',
         sub: `${pt.name} completó un entrenamiento de "${weekPrograms[weekProg.program_id]?.name}"`, kind: 'completion'
       });
     }
@@ -95,8 +95,8 @@ export default function Paciente() {
       patient_id: pt.id, ex_id: ex.id, section_id: ex.sectionId,
       date: today(), pain, note, feeling: ''
     });
-    if (pt.fisio_id) await supabase.from('notifications').insert({
-      user_id: pt.fisio_id, title: '💪 Ejercicio completado',
+    if (assigned?.assigned_by) await supabase.from('notifications').insert({
+      user_id: assigned.assigned_by, title: '💪 Ejercicio completado',
       sub: `${pt.name} completó: ${ex.name}${pain>0?` · Dolor ${pain}/10`:''}`, kind: 'completion'
     });
     setOpenEx(null); setPain(0); setNote('');
@@ -105,7 +105,7 @@ export default function Paciente() {
 
   async function saveAnam() {
     await supabase.from('patients').update({ anamnesis: anam }).eq('id', pt.id);
-    if (pt.fisio_id) await supabase.from('notifications').insert({ user_id: pt.fisio_id,
+    if (assigned?.assigned_by) await supabase.from('notifications').insert({ user_id: assigned.assigned_by,
       title: '📋 Anamnesis completada', sub: `${pt.name} completó su anamnesis`, kind: 'general' });
     setPt({ ...pt, anamnesis: anam }); setAnam(null);
     showToast('✓ Anamnesis enviada a tu fisioterapeuta');
@@ -140,16 +140,6 @@ export default function Paciente() {
       </header>
 
       <h2 style={{marginBottom:14}}>Hola, {pt.name.split(' ')[0]}</h2>
-
-      {!pt.fisio_id && (
-        <div className="card" style={{marginBottom:16,borderColor:'var(--accent)'}}>
-          <strong>⏳ Aún no tienes fisioterapeuta asignado</strong>
-          <p style={{fontSize:'.78rem',color:'var(--grey)',marginTop:6}}>
-            En cuanto un fisioterapeuta te registre como su paciente, verás aquí tus ejercicios y programa.
-            Mientras tanto puedes ir completando tu <strong>Historia clínica</strong>.
-          </p>
-        </div>
-      )}
 
       <div style={{display:'flex',gap:8,marginBottom:18}}>
         {[['ejercicios','🏋️ Ejercicios'],['programa','📆 Programa'],['historia','📋 Historia']].map(([k,l]) => (

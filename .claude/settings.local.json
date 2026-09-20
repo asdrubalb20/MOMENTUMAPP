@@ -16,7 +16,8 @@
       "mcp__cf754419-7eb8-4f1d-9b6c-f1401ccc673d__deploy_edge_function",
       "mcp__cf754419-7eb8-4f1d-9b6c-f1401ccc673d__execute_sql",
       "Skill(claude-api)",
-      "Skill(claude-api:*)"
+      "Skill(claude-api:*)",
+      "mcp__cf754419-7eb8-4f1d-9b6c-f1401ccc673d__apply_migration"
     ]
   }
 }

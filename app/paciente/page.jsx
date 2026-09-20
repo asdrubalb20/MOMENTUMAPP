@@ -38,6 +38,7 @@ export default function Paciente() {
   const [weekProg, setWeekProg] = useState(null);
   const [weekLogs, setWeekLogs] = useState([]);
   const [openWeek, setOpenWeek] = useState(0);
+  const [sessionCount, setSessionCount] = useState(0);
   const router = useRouter();
   const showToast = m => { setToast(m); setTimeout(() => setToast(''), 2800); };
 
@@ -69,6 +70,8 @@ export default function Paciente() {
       const { data: wl } = await supabase.from('week_logs').select('*').eq('patient_id', p.id).eq('program_id', wa.program_id);
       setWeekLogs(wl || []);
     } else setWeekLogs([]);
+    const { count } = await supabase.from('sessions').select('id', { count: 'exact', head: true }).eq('patient_id', p.id);
+    setSessionCount(count || 0);
   }
 
   const workoutDone = (w, wo) => weekLogs.some(l => l.week===w && l.workout_idx===wo);
@@ -141,14 +144,78 @@ export default function Paciente() {
 
       <h2 style={{marginBottom:14}}>Hola, {pt.name.split(' ')[0]}</h2>
 
-      <div style={{display:'flex',gap:8,marginBottom:18}}>
-        {[['ejercicios','🏋️ Ejercicios'],['programa','📆 Programa'],['historia','📋 Historia']].map(([k,l]) => (
+      <div style={{display:'flex',gap:8,marginBottom:18,flexWrap:'wrap'}}>
+        {[['ejercicios','🏋️ Ejercicios'],['programa','📆 Programa'],['progreso','📊 Mi progreso'],['historia','📋 Historia']].map(([k,l]) => (
           <button key={k} onClick={()=>setTab(k)}
-            style={{flex:1,padding:'11px',borderRadius:9,fontSize:'.82rem',fontWeight:600,
+            style={{flex:'1 1 120px',padding:'11px',borderRadius:9,fontSize:'.82rem',fontWeight:600,
               background:tab===k?'var(--accent)':'none',color:tab===k?'#1a1a1a':'var(--grey)',
               border:tab===k?'none':'1px solid var(--dim)'}}>{l}</button>
         ))}
       </div>
+
+      {tab==='progreso' && (() => {
+        const done = sessionCount;
+        const plan = pt.plan_sessions || 0;
+        const remaining = plan ? Math.max(0, plan - done) : null;
+        const painLogs = logs.filter(l => typeof l.pain === 'number')
+          .sort((a,b) => new Date(a.date||a.created_at) - new Date(b.date||b.created_at));
+        const first = painLogs[0]?.pain, last = painLogs[painLogs.length-1]?.pain;
+        return (
+          <>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:12,margin:'8px 0 18px'}}>
+              <div className="card" style={{textAlign:'center'}}>
+                <div style={{fontSize:'1.8rem',fontWeight:700}}>{done}</div>
+                <div style={{fontSize:'.6rem',color:'var(--grey)',textTransform:'uppercase',letterSpacing:'.1em'}}>Sesiones realizadas</div>
+              </div>
+              {plan>0 && (
+                <div className="card" style={{textAlign:'center'}}>
+                  <div style={{fontSize:'1.8rem',fontWeight:700}}>{remaining}</div>
+                  <div style={{fontSize:'.6rem',color:'var(--grey)',textTransform:'uppercase',letterSpacing:'.1em'}}>Sesiones restantes</div>
+                </div>
+              )}
+              <div className="card" style={{textAlign:'center'}}>
+                <div style={{fontSize:'1.8rem',fontWeight:700}}>{logs.length}</div>
+                <div style={{fontSize:'.6rem',color:'var(--grey)',textTransform:'uppercase',letterSpacing:'.1em'}}>Ejercicios completados</div>
+              </div>
+            </div>
+
+            {plan>0 && (
+              <div className="card" style={{marginBottom:16}}>
+                <div style={{display:'flex',justifyContent:'space-between',marginBottom:8,fontSize:'.82rem'}}>
+                  <strong>Tu ciclo de tratamiento</strong><span>{done}/{plan}</span>
+                </div>
+                <div style={{height:8,background:'#111',borderRadius:4}}>
+                  <div style={{width:`${Math.min(100,Math.round(done/plan*100))}%`,height:'100%',background:'var(--ok)',borderRadius:4}} />
+                </div>
+                <p style={{fontSize:'.75rem',color:'var(--grey)',marginTop:8}}>
+                  {remaining>0 ? `Te faltan ${remaining} sesión(es) para completar tu ciclo.` : '¡Completaste tu ciclo! 🎉'}
+                </p>
+              </div>
+            )}
+
+            <div className="card">
+              <strong style={{fontSize:'.85rem'}}>Evolución de tu dolor</strong>
+              {painLogs.length===0 ? (
+                <p style={{fontSize:'.78rem',color:'var(--grey)',marginTop:8}}>Aún no has registrado tu dolor al marcar ejercicios.</p>
+              ) : (
+                <>
+                  <div style={{display:'flex',alignItems:'flex-end',gap:3,height:80,marginTop:12}}>
+                    {painLogs.slice(-20).map((l,i) => (
+                      <div key={i} title={`${l.date||''}: ${l.pain}/10`}
+                        style={{flex:1,height:`${Math.max(4,(l.pain/10)*100)}%`,minHeight:2,borderRadius:2,
+                          background: l.pain>=7?'var(--danger)': l.pain>=4?'#e0b050':'var(--ok)'}} />
+                    ))}
+                  </div>
+                  <p style={{fontSize:'.78rem',color:'var(--grey)',marginTop:10}}>
+                    Dolor inicial: <strong style={{color:'var(--white)'}}>{first}/10</strong> · Último: <strong style={{color:'var(--white)'}}>{last}/10</strong>
+                    {last<first && ' · ¡Vas mejorando! 💪'}
+                  </p>
+                </>
+              )}
+            </div>
+          </>
+        );
+      })()}
 
       {tab==='historia' && <>
 

@@ -222,6 +222,11 @@ export default function Fisio() {
     setSessions(ss || []);
   }
 
+  async function savePlan() {
+    await supabase.from('patients').update({ plan_sessions: selPt.plan_sessions ?? null }).eq('id', selPt.id);
+    showToast('✓ Ciclo actualizado');
+  }
+
   async function addSession() {
     if (!newSession?.title?.trim() && !newSession?.notes?.trim()) return showToast('Escribe un título o notas de la sesión');
     setSavingSession(true);
@@ -544,6 +549,14 @@ export default function Fisio() {
                 onClick={()=>setNewSession(newSession?null:{date:new Date().toISOString().split('T')[0],title:'',notes:'',progress:''})}>
                 {newSession?'Cancelar':'➕ Nueva sesión'}
               </button>
+            </div>
+
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,fontSize:'.8rem',flexWrap:'wrap'}}>
+              <span style={{color:'var(--grey)'}}>Ciclo planificado:</span>
+              <input type="number" min="0" placeholder="—" value={selPt.plan_sessions ?? ''}
+                onChange={e=>setSelPt({...selPt, plan_sessions: e.target.value===''?null:Math.max(0,parseInt(e.target.value)||0)})}
+                onBlur={savePlan} style={{width:70,padding:'6px 8px'}} />
+              <span style={{color:'var(--grey)'}}>sesiones · {sessions.length} realizadas{selPt.plan_sessions?` · faltan ${Math.max(0, selPt.plan_sessions - sessions.length)}`:''}</span>
             </div>
 
             {newSession && (

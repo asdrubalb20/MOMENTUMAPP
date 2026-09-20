@@ -12,10 +12,34 @@ const AN_FIELDS = [
   ['painMov','Dolor al moverse (0-10)'], ['aggrav','¿Qué lo empeora?'], ['relief','¿Qué lo alivia?'],
   ['history','Antecedentes (enfermedades, cirugías, medicamentos)'], ['activity','Actividad física / trabajo'],
 ];
-// Evaluación fisioterapéutica (la completa el fisio)
-const EVAL_FIELDS = [
-  ['inspection','Inspección / observación'], ['palpation','Palpación'],
-  ['rom','Rango de movimiento (ROM)'], ['strength','Fuerza muscular'], ['special_tests','Pruebas especiales'],
+// Evaluación fisioterapéutica por SELECCIÓN (la completa el fisio) — rápida y objetiva
+const EVAL_SECTIONS = [
+  { title: 'Dolor y físico', fields: [
+    { k: 'pain', label: 'Dolor (EVA)', type: 'range' },
+    { k: 'strength', label: 'Fuerza muscular (Daniels)', type: 'select', opts: ['0 - Sin contracción','1 - Contracción visible','2 - Movimiento sin gravedad','3 - Vence gravedad','4 - Vence resistencia leve','5 - Normal'] },
+    { k: 'rom', label: 'Rango de movimiento', type: 'select', opts: ['Completo','Leve limitación (~75%)','Moderada (~50%)','Severa (~25%)','Mínima (<25%)'] },
+    { k: 'tone', label: 'Tono muscular', type: 'select', opts: ['Normal','Hipotónico','Hipertónico','Espasticidad'] },
+  ]},
+  { title: 'Inspección y palpación', fields: [
+    { k: 'inspection', label: 'Inspección', type: 'multi', opts: ['Normal','Edema','Hematoma','Deformidad','Atrofia','Postura antiálgica','Enrojecimiento'] },
+    { k: 'palpation', label: 'Palpación', type: 'multi', opts: ['Sin dolor','Dolor localizado','Espasmo muscular','Aumento de temperatura','Crepitación'] },
+  ]},
+  { title: 'Análisis postural', fields: [
+    { k: 'post_head', label: 'Cabeza', type: 'select', opts: ['Alineada','Inclinada','Rotada','Adelantada'] },
+    { k: 'post_shoulders', label: 'Hombros', type: 'select', opts: ['Nivelados','Elevado derecho','Elevado izquierdo','Enrollados (protracción)'] },
+    { k: 'post_spine', label: 'Columna', type: 'select', opts: ['Normal','Escoliosis','Hipercifosis dorsal','Hiperlordosis lumbar','Rectificación'] },
+    { k: 'post_pelvis', label: 'Pelvis', type: 'select', opts: ['Nivelada','Báscula anterior','Báscula posterior','Oblicuidad lateral'] },
+    { k: 'post_knees', label: 'Rodillas', type: 'select', opts: ['Neutras','Genu valgo','Genu varo','Genu recurvatum'] },
+    { k: 'post_feet', label: 'Pies', type: 'select', opts: ['Neutros','Pie plano (pronado)','Pie cavo (supinado)','Hallux valgus'] },
+  ]},
+  { title: 'Análisis de marcha', fields: [
+    { k: 'gait_pattern', label: 'Patrón de marcha', type: 'select', opts: ['Normal','Antiálgica','Claudicante','Atáxica','Espástica','Estepaje (pie caído)','Trendelenburg','Parkinsoniana (festinante)'] },
+    { k: 'gait_step', label: 'Longitud / simetría del paso', type: 'select', opts: ['Simétrica','Asimétrica','Acortada bilateral'] },
+    { k: 'gait_cadence', label: 'Cadencia / velocidad', type: 'select', opts: ['Normal','Reducida','Aumentada'] },
+    { k: 'gait_base', label: 'Base de sustentación', type: 'select', opts: ['Normal','Ampliada','Reducida'] },
+    { k: 'gait_phase', label: 'Fases (apoyo/balanceo)', type: 'select', opts: ['Normales','Apoyo alterado','Balanceo alterado','Ambas alteradas'] },
+    { k: 'gait_aid', label: 'Ayuda técnica', type: 'select', opts: ['Ninguna','Bastón','Muletas','Andador','Silla de ruedas'] },
+  ]},
 ];
 // Diagnóstico, pronóstico y plan (la completa el fisio)
 const DX_FIELDS = [
@@ -381,13 +405,45 @@ export default function Fisio() {
               )}
             </details>
 
-            <p style={{fontSize:'.7rem',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--grey)',margin:'6px 0 8px'}}>Evaluación fisioterapéutica</p>
-            {EVAL_FIELDS.map(([k,label]) => (
-              <div key={k} style={{marginBottom:8}}>
-                <label style={{fontSize:'.72rem',color:'var(--grey)'}}>{label}</label>
-                <textarea rows={2} value={evalData[k]||''} onChange={e=>setEvalData({...evalData,[k]:e.target.value})} />
+            {EVAL_SECTIONS.map(sec => (
+              <div key={sec.title} style={{marginBottom:6}}>
+                <p style={{fontSize:'.7rem',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--grey)',margin:'10px 0 8px'}}>{sec.title}</p>
+                {sec.fields.map(f => (
+                  <div key={f.k} style={{marginBottom:10}}>
+                    <label style={{fontSize:'.75rem',color:'var(--grey)'}}>
+                      {f.label}{f.type==='range' && <> · <strong style={{color:'var(--white)'}}>{evalData[f.k]??0}</strong>/10</>}
+                    </label>
+                    {f.type==='range' && (
+                      <input type="range" min="0" max="10" value={evalData[f.k]??0}
+                        onChange={e=>setEvalData({...evalData,[f.k]:+e.target.value})} style={{padding:0,margin:'6px 0'}} />
+                    )}
+                    {f.type==='select' && (
+                      <select value={evalData[f.k]||''} onChange={e=>setEvalData({...evalData,[f.k]:e.target.value})}>
+                        <option value="">—</option>
+                        {f.opts.map(o=><option key={o} value={o}>{o}</option>)}
+                      </select>
+                    )}
+                    {f.type==='multi' && (
+                      <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:4}}>
+                        {f.opts.map(o => {
+                          const arr = Array.isArray(evalData[f.k]) ? evalData[f.k] : [];
+                          const on = arr.includes(o);
+                          return (
+                            <button key={o} type="button" onClick={()=>setEvalData({...evalData,[f.k]: on ? arr.filter(x=>x!==o) : [...arr,o]})}
+                              style={{padding:'5px 10px',borderRadius:14,fontSize:'.72rem',cursor:'pointer',
+                                border:'1px solid '+(on?'var(--accent)':'var(--dim)'),background:on?'var(--accent)':'none',color:on?'#1a1a1a':'var(--grey)'}}>{o}</button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             ))}
+            <div style={{marginBottom:8}}>
+              <label style={{fontSize:'.72rem',color:'var(--grey)'}}>Pruebas especiales / notas</label>
+              <textarea rows={2} value={evalData.notes||''} onChange={e=>setEvalData({...evalData,notes:e.target.value})} />
+            </div>
 
             <p style={{fontSize:'.7rem',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--grey)',margin:'12px 0 8px'}}>Diagnóstico, pronóstico y plan</p>
             {DX_FIELDS.map(([k,label]) => (

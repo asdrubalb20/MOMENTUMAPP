@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { sections, exercises, weekPrograms } from '@/lib/data';
@@ -71,6 +71,10 @@ export default function Fisio() {
   const [savingEval, setSavingEval] = useState(false);
   const [newPt, setNewPt] = useState(null);
   const [savingPt, setSavingPt] = useState(false);
+  const [voiceText, setVoiceText] = useState('');
+  const [recording, setRecording] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const recRef = useRef(null);
   const router = useRouter();
   const showToast = m => { setToast(m); setTimeout(() => setToast(''), 2800); };
 
@@ -111,6 +115,46 @@ export default function Fisio() {
       setMetrics(m => ({ ...m, today: m.today + 1 }));
       showToast(`✓ Atendiste a ${pt.name} hoy`);
     }
+  }
+
+  function toggleRecording() {
+    const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (!SR) return showToast('Tu navegador no soporta dictado (usa Chrome). Puedes escribir el reporte.');
+    if (recording) { recRef.current && recRef.current.stop(); return; }
+    const rec = new SR();
+    rec.lang = 'es-ES'; rec.continuous = true; rec.interimResults = true;
+    let base = voiceText ? voiceText + ' ' : '';
+    rec.onresult = (e) => {
+      let finalT = '', interim = '';
+      for (let i = 0; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalT += t + ' '; else interim += t;
+      }
+      setVoiceText((base + finalT + interim).trim());
+    };
+    rec.onend = () => setRecording(false);
+    rec.onerror = () => setRecording(false);
+    recRef.current = rec; rec.start(); setRecording(true);
+  }
+
+  async function parseVoice() {
+    if (!voiceText.trim()) return showToast('Dicta o escribe el reporte primero');
+    setParsing(true);
+    const { data, error } = await supabase.functions.invoke('parse-report', { body: { transcript: voiceText } });
+    setParsing(false);
+    if (error) {
+      let m = error.message;
+      try { const j = await error.context.json(); if (j?.error) m = j.error; } catch (_) {}
+      return showToast('Error: ' + m);
+    }
+    if (data?.error) return showToast('Error: ' + data.error);
+    const f = (data && data.fields) || {};
+    const dxKeys = ['diagnosis', 'prognosis', 'goals', 'plan'];
+    const nextEval = { ...evalData }, nextDx = { ...dxData };
+    let n = 0;
+    for (const [k, v] of Object.entries(f)) { if (dxKeys.includes(k)) nextDx[k] = v; else nextEval[k] = v; n++; }
+    setEvalData(nextEval); setDxData(nextDx);
+    showToast(n ? `✓ IA rellenó ${n} campo(s) — revísalos y guarda` : 'La IA no encontró campos');
   }
 
   async function createPatient() {
@@ -404,6 +448,15 @@ export default function Fisio() {
                 </p>
               )}
             </details>
+
+            <div style={{background:'var(--adim)',border:'1px solid var(--border)',borderRadius:10,padding:'10px 12px',marginBottom:12}}>
+              <p style={{fontSize:'.7rem',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--grey)',marginBottom:8}}>🎤 Reporte por voz</p>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>
+                <button className="btn-ol" onClick={toggleRecording} style={recording?{color:'var(--danger)',borderColor:'var(--danger)'}:{}}>{recording?'⏹ Detener':'🎤 Dictar'}</button>
+                <button className="btn" onClick={parseVoice} disabled={parsing||!voiceText.trim()}>{parsing?'Analizando…':'✨ Rellenar con IA'}</button>
+              </div>
+              <textarea rows={3} placeholder="Dicta o escribe aquí el reporte de la evaluación; la IA llenará los campos de abajo (revísalos antes de guardar)…" value={voiceText} onChange={e=>setVoiceText(e.target.value)} />
+            </div>
 
             {EVAL_SECTIONS.map(sec => (
               <div key={sec.title} style={{marginBottom:6}}>

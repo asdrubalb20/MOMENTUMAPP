@@ -79,6 +79,7 @@ export default function Fisio() {
   const [sessions, setSessions] = useState([]);
   const [newSession, setNewSession] = useState(null);
   const [savingSession, setSavingSession] = useState(false);
+  const [dashTab, setDashTab] = useState('hoy');
   const router = useRouter();
   const showToast = m => { setToast(m); setTimeout(() => setToast(''), 2800); };
 
@@ -335,6 +336,16 @@ export default function Fisio() {
             </div>
           </div>
 
+          <div style={{display:'flex',gap:8,marginBottom:16}}>
+            {[['hoy','📅 Hoy'],['pacientes','👥 Pacientes']].map(([k,l])=>(
+              <button key={k} onClick={()=>setDashTab(k)}
+                style={{flex:1,padding:'12px',borderRadius:9,fontSize:'.85rem',fontWeight:600,
+                  background:dashTab===k?'var(--accent)':'none',color:dashTab===k?'#1a1a1a':'var(--grey)',
+                  border:dashTab===k?'none':'1px solid var(--dim)'}}>{l}</button>
+            ))}
+          </div>
+
+          {dashTab==='hoy' && (
           <div className="card" style={{marginBottom:14}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
               <strong style={{fontSize:'.8rem'}}>📅 Próximas citas</strong>
@@ -357,7 +368,9 @@ export default function Fisio() {
               <button className="btn" style={{padding:'8px 14px',fontSize:'.75rem'}} onClick={addAppt}>+ Cita</button>
             </div>
           </div>
+          )}
 
+          {dashTab==='pacientes' && (<>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:8}}>
             <h2>Pacientes</h2>
             <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
@@ -427,13 +440,13 @@ export default function Fisio() {
           <input placeholder="🔍 Buscar por nombre o diagnóstico…" value={search}
             onChange={e=>setSearch(e.target.value)} style={{marginBottom:16}} />
           {filtered.map(p => (
-            <div key={p.id} className="card" style={{marginBottom:10,cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}
+            <div key={p.id} className="card" style={{marginBottom:10,cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}
               onClick={()=>openPatient(p)}>
-              <div>
+              <div style={{minWidth:0}}>
                 <strong>{p.name}</strong>
                 <p style={{fontSize:'.78rem',color:'var(--grey)'}}>{p.age ? `${p.age} años · ` : ''}{p.diagnosis}</p>
               </div>
-              <div style={{display:'flex',alignItems:'center',gap:12}} onClick={e=>e.stopPropagation()}>
+              <div style={{display:'flex',alignItems:'center',gap:12,marginLeft:'auto'}} onClick={e=>e.stopPropagation()}>
                 <button onClick={()=>toggleAttendance(p)}
                   className={attToday.includes(p.id) ? 'btn' : 'btn-ol'}
                   style={{padding:'7px 12px',fontSize:'.72rem',...(attToday.includes(p.id)?{}:{color:'var(--ok)',borderColor:'var(--ok)'})}}>
@@ -444,6 +457,7 @@ export default function Fisio() {
             </div>
           ))}
           {!filtered.length && <p style={{color:'var(--grey)'}}>No hay pacientes aún. Se crean al registrarse con su correo.</p>}
+          </>)}
         </>
       ) : (
         <>

@@ -45,6 +45,8 @@ export default function Fisio() {
   const [evalData, setEvalData] = useState({});
   const [dxData, setDxData] = useState({});
   const [savingEval, setSavingEval] = useState(false);
+  const [newPt, setNewPt] = useState(null);
+  const [savingPt, setSavingPt] = useState(false);
   const router = useRouter();
   const showToast = m => { setToast(m); setTimeout(() => setToast(''), 2800); };
 
@@ -85,6 +87,24 @@ export default function Fisio() {
       setMetrics(m => ({ ...m, today: m.today + 1 }));
       showToast(`✓ Atendiste a ${pt.name} hoy`);
     }
+  }
+
+  async function createPatient() {
+    if (!newPt?.name?.trim() || !newPt?.email?.trim()) return showToast('Nombre y correo son obligatorios');
+    if ((newPt.password || '').length < 6) return showToast('La contraseña debe tener al menos 6 caracteres');
+    setSavingPt(true);
+    const { data, error } = await supabase.functions.invoke('create-patient', { body: {
+      name: newPt.name, email: newPt.email, password: newPt.password,
+      cedula: newPt.cedula, phone: newPt.phone, dob: newPt.dob || null
+    }});
+    setSavingPt(false);
+    if (error) {
+      let msg = error.message;
+      try { const j = await error.context.json(); if (j?.error) msg = j.error; } catch (_) {}
+      return showToast('Error: ' + msg);
+    }
+    if (data?.error) return showToast('Error: ' + data.error);
+    setNewPt(null); showToast('✓ Paciente creado'); init();
   }
 
   function buildDose(ex) {
@@ -241,10 +261,29 @@ export default function Fisio() {
             </div>
           </div>
 
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:8}}>
             <h2>Pacientes</h2>
-            <button className="btn-ol" onClick={()=>setNewEx(newEx?null:{section_id:'hombro',name:'',doseType:'reps',series:3,reps:12,seconds:30,zone:'Fuerza',level:'Básico',intent:'',stepsTxt:''})}>➕ Añadir ejercicio</button>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+              <button className="btn-ol" onClick={()=>setNewPt(newPt?null:{name:'',email:'',password:'',cedula:'',phone:'',dob:''})}>➕ Nuevo paciente</button>
+              <button className="btn-ol" onClick={()=>setNewEx(newEx?null:{section_id:'hombro',name:'',doseType:'reps',series:3,reps:12,seconds:30,zone:'Fuerza',level:'Básico',intent:'',stepsTxt:''})}>➕ Añadir ejercicio</button>
+            </div>
           </div>
+          {newPt && (
+            <div className="card" style={{marginBottom:14,display:'flex',flexDirection:'column',gap:8}}>
+              <strong style={{fontSize:'.85rem'}}>Nuevo paciente</strong>
+              <p style={{fontSize:'.72rem',color:'var(--grey)',marginTop:-4}}>Se crea la ficha y una cuenta para que el paciente pueda entrar con su correo y contraseña.</p>
+              <input placeholder="Nombre y apellido" value={newPt.name} onChange={e=>setNewPt({...newPt,name:e.target.value})} maxLength={80} />
+              <input placeholder="Cédula" value={newPt.cedula} onChange={e=>setNewPt({...newPt,cedula:e.target.value})} maxLength={15} />
+              <input type="date" value={newPt.dob} onChange={e=>setNewPt({...newPt,dob:e.target.value})} />
+              <input placeholder="Teléfono" value={newPt.phone} onChange={e=>setNewPt({...newPt,phone:e.target.value})} maxLength={20} />
+              <input type="email" placeholder="correo@ejemplo.com" value={newPt.email} onChange={e=>setNewPt({...newPt,email:e.target.value})} />
+              <input type="text" placeholder="Contraseña para el paciente (mín. 6)" value={newPt.password} onChange={e=>setNewPt({...newPt,password:e.target.value})} />
+              <div style={{display:'flex',gap:8}}>
+                <button className="btn" onClick={createPatient} disabled={savingPt}>{savingPt?'Creando…':'Crear paciente'}</button>
+                <button className="btn-ol" onClick={()=>setNewPt(null)}>Cancelar</button>
+              </div>
+            </div>
+          )}
           {newEx && (
             <div className="card" style={{marginBottom:14,display:'flex',flexDirection:'column',gap:8}}>
               <select value={newEx.section_id} onChange={e=>setNewEx({...newEx,section_id:e.target.value})}>

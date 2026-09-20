@@ -10,7 +10,11 @@
       "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\('Path','Machine'\\) + ';' + [System.Environment]::GetEnvironmentVariable\\('Path','User'\\); node --version; npm --version)",
       "PowerShell($env:Path = [System.Environment]::GetEnvironmentVariable\\('Path','Machine'\\) + ';' + [System.Environment]::GetEnvironmentVariable\\('Path','User'\\); Set-Location \"C:\\\\Users\\\\fesal\\\\Desktop\\\\momentum-next\"; npm install)",
       "Read(//c/Users/fesal/.claude/projects/C--Users-fesal-Desktop-momentum-next/memory//**)",
-      "Read(//c/Users/fesal/.claude/projects/C--Users-fesal-Desktop-momentum-next/memory/**)"
+      "Read(//c/Users/fesal/.claude/projects/C--Users-fesal-Desktop-momentum-next/memory/**)",
+      "mcp__claude-in-chrome__list_connected_browsers",
+      "mcp__cf754419-7eb8-4f1d-9b6c-f1401ccc673d__list_projects",
+      "mcp__cf754419-7eb8-4f1d-9b6c-f1401ccc673d__deploy_edge_function",
+      "mcp__cf754419-7eb8-4f1d-9b6c-f1401ccc673d__execute_sql"
     ]
   }
 }

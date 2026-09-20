@@ -17,7 +17,11 @@
       "mcp__cf754419-7eb8-4f1d-9b6c-f1401ccc673d__execute_sql",
       "Skill(claude-api)",
       "Skill(claude-api:*)",
-      "mcp__cf754419-7eb8-4f1d-9b6c-f1401ccc673d__apply_migration"
+      "mcp__cf754419-7eb8-4f1d-9b6c-f1401ccc673d__apply_migration",
+      "mcp__cbed4cd9-77cb-4f03-bff3-aa772bbb6f85__list_projects",
+      "mcp__cbed4cd9-77cb-4f03-bff3-aa772bbb6f85__create_project_env",
+      "mcp__cbed4cd9-77cb-4f03-bff3-aa772bbb6f85__list_deployments",
+      "mcp__cbed4cd9-77cb-4f03-bff3-aa772bbb6f85__create_deployment"
     ]
   }
 }

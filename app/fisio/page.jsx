@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { sections, exercises, weekPrograms } from '@/lib/data';
 import Toast from '@/components/Toast';
 import Notifications from '@/components/Notifications';
+import VoiceInput from '@/components/VoiceInput';
 
 // Anamnesis (la completa el paciente) — mismas claves que app/paciente
 const AN_FIELDS = [
@@ -75,6 +76,9 @@ export default function Fisio() {
   const [recording, setRecording] = useState(false);
   const [parsing, setParsing] = useState(false);
   const recRef = useRef(null);
+  const [sessions, setSessions] = useState([]);
+  const [newSession, setNewSession] = useState(null);
+  const [savingSession, setSavingSession] = useState(false);
   const router = useRouter();
   const showToast = m => { setToast(m); setTimeout(() => setToast(''), 2800); };
 
@@ -213,6 +217,26 @@ export default function Fisio() {
     const { data: ev } = await supabase.from('evaluations').select('*').eq('patient_id', pt.id).maybeSingle();
     setEvalData(ev?.eval_data || {});
     setDxData(ev?.diagnosis || {});
+    setNewSession(null);
+    const { data: ss } = await supabase.from('sessions').select('*').eq('patient_id', pt.id).order('date', { ascending: false });
+    setSessions(ss || []);
+  }
+
+  async function addSession() {
+    if (!newSession?.title?.trim() && !newSession?.notes?.trim()) return showToast('Escribe un título o notas de la sesión');
+    setSavingSession(true);
+    await supabase.from('sessions').insert({
+      patient_id: selPt.id, fisio_id: user.id,
+      title: newSession.title?.trim() || 'Sesión', date: newSession.date || new Date().toISOString().split('T')[0],
+      notes: newSession.notes || '', progress: newSession.progress || ''
+    });
+    if (selPt.user_id) await supabase.from('notifications').insert({
+      user_id: selPt.user_id, title: '📝 Nueva sesión registrada',
+      sub: `Tu fisioterapeuta registró una sesión${newSession.title ? ': ' + newSession.title : ''}`, kind: 'general'
+    });
+    const { data: ss } = await supabase.from('sessions').select('*').eq('patient_id', selPt.id).order('date', { ascending: false });
+    setSessions(ss || []);
+    setSavingSession(false); setNewSession(null); showToast('✓ Sesión guardada');
   }
 
   async function saveEvaluation() {
@@ -509,6 +533,47 @@ export default function Fisio() {
             <button className="btn" onClick={saveEvaluation} disabled={savingEval} style={{marginTop:6}}>
               {savingEval ? 'Guardando…' : '💾 Guardar evaluación'}
             </button>
+          </div>
+
+          <div className="card" style={{marginBottom:16}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <h3 style={{fontSize:'.75rem',letterSpacing:'.15em',textTransform:'uppercase',color:'var(--grey)'}}>
+                📝 Sesiones clínicas ({sessions.length})
+              </h3>
+              <button className="btn-ol" style={{padding:'6px 12px',fontSize:'.72rem'}}
+                onClick={()=>setNewSession(newSession?null:{date:new Date().toISOString().split('T')[0],title:'',notes:'',progress:''})}>
+                {newSession?'Cancelar':'➕ Nueva sesión'}
+              </button>
+            </div>
+
+            {newSession && (
+              <div style={{background:'var(--adim)',border:'1px solid var(--border)',borderRadius:10,padding:'12px',marginBottom:12,display:'flex',flexDirection:'column',gap:8}}>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                  <input type="date" value={newSession.date} onChange={e=>setNewSession({...newSession,date:e.target.value})} style={{flex:1,minWidth:140}} />
+                  <input placeholder="Título (ej. Sesión 3 — terapia manual)" value={newSession.title} onChange={e=>setNewSession({...newSession,title:e.target.value})} style={{flex:2,minWidth:180}} />
+                </div>
+                <label style={{fontSize:'.72rem',color:'var(--grey)'}}>Notas de la sesión (puedes dictarlas 🎤)</label>
+                <VoiceInput value={newSession.notes} onChange={v=>setNewSession({...newSession,notes:v})} placeholder="Qué se trabajó hoy, hallazgos, respuesta del paciente…" rows={4} />
+                <label style={{fontSize:'.72rem',color:'var(--grey)'}}>Progreso / evolución (puedes dictarlo 🎤)</label>
+                <VoiceInput value={newSession.progress} onChange={v=>setNewSession({...newSession,progress:v})} placeholder="Cambios respecto a la sesión anterior…" rows={2} />
+                <div style={{display:'flex',gap:8}}>
+                  <button className="btn" onClick={addSession} disabled={savingSession}>{savingSession?'Guardando…':'Guardar sesión'}</button>
+                  <button className="btn-ol" onClick={()=>setNewSession(null)}>Cancelar</button>
+                </div>
+              </div>
+            )}
+
+            {sessions.map(s=>(
+              <div key={s.id} style={{padding:'10px 0',borderTop:'1px solid var(--border)'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <strong style={{fontSize:'.85rem'}}>{s.title}</strong>
+                  <span style={{fontSize:'.7rem',color:'var(--grey)'}}>{s.date}</span>
+                </div>
+                {s.notes && <p style={{fontSize:'.8rem',color:'var(--grey)',marginTop:4,whiteSpace:'pre-wrap'}}>{s.notes}</p>}
+                {s.progress && <p style={{fontSize:'.78rem',marginTop:4}}><span style={{color:'var(--ok)'}}>Progreso:</span> {s.progress}</p>}
+              </div>
+            ))}
+            {!sessions.length && !newSession && <p style={{fontSize:'.8rem',color:'var(--grey)'}}>Sin sesiones registradas. Usa "➕ Nueva sesión".</p>}
           </div>
 
           <div className="card" style={{marginBottom:16}}>

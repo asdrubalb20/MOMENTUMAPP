@@ -80,6 +80,7 @@ export default function Fisio() {
   const [newSession, setNewSession] = useState(null);
   const [savingSession, setSavingSession] = useState(false);
   const [dashTab, setDashTab] = useState('hoy');
+  const [gcal, setGcal] = useState(null);
   const router = useRouter();
   const showToast = m => { setToast(m); setTimeout(() => setToast(''), 2800); };
 
@@ -106,6 +107,11 @@ export default function Fisio() {
     const aq = supabase.from('appointments').select('*').gte('date', today).order('date').order('time').limit(10);
     const { data: ap } = isAdmin ? await aq : await aq.eq('fisio_id', user.id);
     setAppts(ap || []);
+    loadGcal();
+    if (typeof window !== 'undefined' && window.location.search.includes('gcal=ok')) {
+      showToast('✓ Google Calendar conectado');
+      window.history.replaceState({}, '', '/fisio');
+    }
   }
 
   async function toggleAttendance(pt) {
@@ -221,6 +227,34 @@ export default function Fisio() {
     setNewSession(null);
     const { data: ss } = await supabase.from('sessions').select('*').eq('patient_id', pt.id).order('date', { ascending: false });
     setSessions(ss || []);
+  }
+
+  async function loadGcal() {
+    const start = new Date(); start.setHours(0,0,0,0);
+    const end = new Date(); end.setHours(23,59,59,999);
+    const { data, error } = await supabase.functions.invoke('google-calendar-today', { body: { timeMin: start.toISOString(), timeMax: end.toISOString() } });
+    setGcal(error ? { connected: false } : (data || { connected: false }));
+  }
+
+  async function connectGoogle() {
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    if (!clientId) return showToast('Falta configurar NEXT_PUBLIC_GOOGLE_CLIENT_ID en Vercel');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return showToast('Sesión no válida');
+    const state = btoa(JSON.stringify({ t: session.access_token, o: window.location.origin }));
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: 'https://xguouudyrveqfpjsaujl.supabase.co/functions/v1/google-oauth-callback',
+      response_type: 'code',
+      scope: 'https://www.googleapis.com/auth/calendar.readonly openid email',
+      access_type: 'offline', prompt: 'consent', state,
+    });
+    window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params.toString();
+  }
+
+  function openPatientById(id) {
+    const p = patients.find(x => x.id === id);
+    if (p) openPatient(p); else showToast('Ese paciente no está en tu lista');
   }
 
   async function savePlan() {
@@ -345,7 +379,35 @@ export default function Fisio() {
             ))}
           </div>
 
-          {dashTab==='hoy' && (
+          {dashTab==='hoy' && (<>
+          <div className="card" style={{marginBottom:14}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,flexWrap:'wrap',gap:6}}>
+              <strong style={{fontSize:'.8rem'}}>🗓️ Agendados hoy (Google Calendar)</strong>
+              {gcal?.connected && <span style={{fontSize:'.62rem',color:'var(--grey)'}}>{gcal.email}</span>}
+            </div>
+            {!gcal ? (
+              <p style={{fontSize:'.78rem',color:'var(--grey)'}}>Cargando…</p>
+            ) : !gcal.connected ? (
+              <div>
+                <p style={{fontSize:'.78rem',color:'var(--grey)',marginBottom:10}}>Conecta tu Google Calendar para ver aquí a tus pacientes agendados hoy.</p>
+                <button className="btn" onClick={connectGoogle}>🔗 Conectar Google Calendar</button>
+              </div>
+            ) : !gcal.events?.length ? (
+              <p style={{fontSize:'.78rem',color:'var(--grey)'}}>No tienes eventos hoy en tu calendario.</p>
+            ) : (
+              gcal.events.map(ev => (
+                <div key={ev.id} onClick={()=>ev.patient && openPatientById(ev.patient.id)}
+                  style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'9px 0',borderTop:'1px solid var(--border)',cursor:ev.patient?'pointer':'default'}}>
+                  <div style={{minWidth:0}}>
+                    <span style={{fontSize:'.85rem'}}><strong>{ev.time}</strong> · {ev.patient ? ev.patient.name : ev.summary}</span>
+                    {!ev.patient && <p style={{fontSize:'.66rem',color:'var(--grey)'}}>Sin paciente enlazado{ev.guests?.length?` · ${ev.guests[0]}`:''}</p>}
+                  </div>
+                  {ev.patient ? <span style={{color:'var(--accent)'}}>Ver ficha ›</span> : <span style={{fontSize:'.62rem',color:'var(--grey)'}}>sin ficha</span>}
+                </div>
+              ))
+            )}
+          </div>
+
           <div className="card" style={{marginBottom:14}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
               <strong style={{fontSize:'.8rem'}}>📅 Próximas citas</strong>
@@ -368,7 +430,7 @@ export default function Fisio() {
               <button className="btn" style={{padding:'8px 14px',fontSize:'.75rem'}} onClick={addAppt}>+ Cita</button>
             </div>
           </div>
-          )}
+          </>)}
 
           {dashTab==='pacientes' && (<>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:8}}>

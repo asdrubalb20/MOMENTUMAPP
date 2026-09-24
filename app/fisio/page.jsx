@@ -47,6 +47,47 @@ const DX_FIELDS = [
   ['diagnosis','Diagnóstico fisioterapéutico'], ['prognosis','Pronóstico'],
   ['goals','Objetivos del tratamiento'], ['plan','Plan de tratamiento'],
 ];
+// Mapa ROM -> porcentaje para el gráfico del informe
+const ROM_PCT = { 'Completo':100, 'Leve limitación (~75%)':75, 'Moderada (~50%)':50, 'Severa (~25%)':25, 'Mínima (<25%)':10 };
+
+// Barra de métrica para el informe (fondo claro, se ve bien en PDF)
+function StatBar({ label, display, pct, color }) {
+  return (
+    <div style={{ flex: '1 1 130px', minWidth: 130 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '.72rem', marginBottom: 5 }}>
+        <span style={{ color: '#666' }}>{label}</span><strong style={{ color: '#1a1a1a' }}>{display}</strong>
+      </div>
+      <div style={{ height: 10, background: '#ececec', borderRadius: 6, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: Math.max(0, Math.min(100, pct)) + '%', background: color, borderRadius: 6 }} />
+      </div>
+    </div>
+  );
+}
+function RepSection({ title, children }) {
+  if (!children) return null;
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: '.66rem', textTransform: 'uppercase', letterSpacing: '.08em', color: '#888', marginBottom: 4 }}>{title}</div>
+      <p style={{ fontSize: '.85rem', lineHeight: 1.5, color: '#1a1a1a', margin: 0 }}>{children}</p>
+    </div>
+  );
+}
+function RepList({ title, items, color }) {
+  if (!items || !items.length) return null;
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: '.66rem', textTransform: 'uppercase', letterSpacing: '.08em', color: '#888', marginBottom: 6 }}>{title}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {items.map((it, i) => (
+          <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: '.85rem', lineHeight: 1.4 }}>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, marginTop: 6, flexShrink: 0 }} />
+            <span style={{ color: '#1a1a1a' }}>{it}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function Fisio() {
   const [user, setUser] = useState(null);
@@ -69,6 +110,11 @@ export default function Fisio() {
   const [dxData, setDxData] = useState({});
   const [savingEval, setSavingEval] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
+  const [report, setReport] = useState(null);
+  const [reportVer, setReportVer] = useState('patient');
+  const [genReport, setGenReport] = useState(false);
+  const [pdfing, setPdfing] = useState(false);
+  const reportRef = useRef(null);
   const [newPt, setNewPt] = useState(null);
   const [savingPt, setSavingPt] = useState(false);
   const [voiceText, setVoiceText] = useState('');
@@ -332,6 +378,61 @@ export default function Fisio() {
 
   function removeTest(idx) {
     setEvalData({ ...evalData, special_tests: (evalData.special_tests || []).filter((_, i) => i !== idx) });
+  }
+
+  function buildEvalSummary() {
+    const lines = [];
+    const an = selPt.anamnesis;
+    if (an) AN_FIELDS.forEach(([k, l]) => { if (an[k]) lines.push(`${l}: ${an[k]}`); });
+    EVAL_SECTIONS.forEach(sec => sec.fields.forEach(f => {
+      const v = evalData[f.k];
+      if (v === undefined || v === '' || (Array.isArray(v) && !v.length)) return;
+      lines.push(`${f.label}: ${Array.isArray(v) ? v.join(', ') : v}${f.type === 'range' ? '/10' : ''}`);
+    }));
+    const sts = evalData.special_tests || [];
+    if (sts.length) lines.push('Pruebas especiales: ' + sts.map(t => `${t.name}: ${t.result || 'sin resultado'}`).join('; '));
+    if (evalData.notes) lines.push(`Notas: ${evalData.notes}`);
+    DX_FIELDS.forEach(([k, l]) => { if (dxData[k]) lines.push(`${l}: ${dxData[k]}`); });
+    return lines.join('\n');
+  }
+
+  async function generateReport() {
+    const summary = buildEvalSummary();
+    if (summary.length < 20) return showToast('Completa la evaluación antes de generar el informe');
+    setGenReport(true);
+    const { data, error } = await supabase.functions.invoke('generate-report', {
+      body: { name: selPt.name, diagnosis: dxData.diagnosis || selPt.diagnosis || '', summary }
+    });
+    setGenReport(false);
+    if (error) { let m = error.message; try { const j = await error.context.json(); if (j?.error) m = j.error; } catch (_) {} return showToast('Error: ' + m); }
+    if (data?.error) return showToast('Error: ' + data.error);
+    setReport(data.report);
+    setReportVer('patient');
+    showToast('✓ Informe generado — revísalo y descárgalo');
+  }
+
+  async function downloadPdf() {
+    const el = reportRef.current;
+    if (!el) return;
+    setPdfing(true);
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const { jsPDF } = await import('jspdf');
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+      const img = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pw = pdf.internal.pageSize.getWidth();
+      const ph = pdf.internal.pageSize.getHeight();
+      const imgH = canvas.height * pw / canvas.width;
+      let heightLeft = imgH, pos = 0;
+      pdf.addImage(img, 'PNG', 0, pos, pw, imgH);
+      heightLeft -= ph;
+      while (heightLeft > 0) { pos -= ph; pdf.addPage(); pdf.addImage(img, 'PNG', 0, pos, pw, imgH); heightLeft -= ph; }
+      pdf.save(`Informe-${(selPt.name || 'paciente').replace(/\s+/g, '_')}-${reportVer === 'patient' ? 'paciente' : 'clinico'}.pdf`);
+    } catch (e) {
+      showToast('No se pudo generar el PDF: ' + (e?.message || e));
+    }
+    setPdfing(false);
   }
 
   async function saveEvaluation() {
@@ -753,6 +854,64 @@ export default function Fisio() {
             <button className="btn" onClick={saveEvaluation} disabled={savingEval} style={{marginTop:6}}>
               {savingEval ? 'Guardando…' : '💾 Guardar evaluación'}
             </button>
+          </div>
+
+          <div className="card" style={{marginBottom:16}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:report?12:0}}>
+              <h3 style={{fontSize:'.75rem',letterSpacing:'.15em',textTransform:'uppercase',color:'var(--grey)'}}>📄 Informe de evaluación</h3>
+              <button className="btn-ol" style={{padding:'6px 12px',fontSize:'.72rem'}} onClick={generateReport} disabled={genReport}>{genReport?'Generando…':'✨ Generar informe (IA)'}</button>
+            </div>
+            {!report && <p style={{fontSize:'.75rem',color:'var(--grey)'}}>Genera con IA el resumen, pronóstico, objetivos y riesgos — en versión para el paciente y versión clínica, con gráficos y descarga en PDF. Guarda la evaluación antes para incluir todos los datos.</p>}
+            {report && (<>
+              <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+                {[['patient','🧑 Paciente'],['clinico','🩺 Clínico']].map(([k,l])=>(
+                  <button key={k} onClick={()=>setReportVer(k)} style={{padding:'7px 14px',borderRadius:9,fontSize:'.78rem',fontWeight:600,background:reportVer===k?'var(--accent)':'none',color:reportVer===k?'#1a1a1a':'var(--grey)',border:reportVer===k?'none':'1px solid var(--dim)'}}>{l}</button>
+                ))}
+                <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+                  <button className="btn" style={{padding:'7px 14px',fontSize:'.76rem'}} onClick={downloadPdf} disabled={pdfing}>{pdfing?'Generando…':'⬇ Descargar PDF'}</button>
+                  <button className="btn-ol" style={{padding:'7px 12px',fontSize:'.76rem'}} onClick={()=>setReport(null)}>Cerrar</button>
+                </div>
+              </div>
+              <div ref={reportRef} style={{background:'#fff',color:'#1a1a1a',borderRadius:12,padding:'26px',fontFamily:'system-ui,-apple-system,sans-serif'}}>
+                {(() => {
+                  const r = report[reportVer] || {};
+                  const painV = Number(evalData.pain)||0;
+                  const strengthV = evalData.strength ? (parseInt(evalData.strength)||0) : null;
+                  const romV = ROM_PCT[evalData.rom] ?? null;
+                  const posCount = (evalData.special_tests||[]).filter(t=>t.result==='Positiva').length;
+                  const painColor = painV>=7?'#e5484d':painV>=4?'#f5a623':'#30a46c';
+                  const today = new Date().toLocaleDateString('es-VE',{day:'2-digit',month:'long',year:'numeric'});
+                  return (<>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',borderBottom:'2px solid #1a1a1a',paddingBottom:12,marginBottom:16}}>
+                      <div>
+                        <div style={{fontSize:'1.3rem',fontWeight:800,letterSpacing:'-.02em'}}>Momentum</div>
+                        <div style={{fontSize:'.7rem',color:'#888'}}>Informe de evaluación fisioterapéutica</div>
+                      </div>
+                      <div style={{textAlign:'right',fontSize:'.72rem',color:'#666'}}>
+                        <div><strong style={{color:'#1a1a1a'}}>{selPt.name}</strong></div>
+                        <div>{today}</div>
+                        <div>{reportVer==='patient'?'Versión paciente':'Versión clínica'}</div>
+                      </div>
+                    </div>
+                    {(dxData.diagnosis||selPt.diagnosis) && <div style={{marginBottom:16}}><span style={{fontSize:'.66rem',textTransform:'uppercase',letterSpacing:'.08em',color:'#888'}}>Diagnóstico</span><div style={{fontSize:'.95rem',fontWeight:600}}>{dxData.diagnosis||selPt.diagnosis}</div></div>}
+                    <div style={{display:'flex',gap:16,flexWrap:'wrap',background:'#f6f6f6',borderRadius:10,padding:'14px 16px',marginBottom:18}}>
+                      <StatBar label="Dolor (EVA)" display={painV+'/10'} pct={painV*10} color={painColor} />
+                      {strengthV!==null && <StatBar label="Fuerza" display={strengthV+'/5'} pct={strengthV*20} color="#3b82f6" />}
+                      {romV!==null && <StatBar label="Rango de movimiento" display={romV+'%'} pct={romV} color="#30a46c" />}
+                      <StatBar label="Pruebas positivas" display={String(posCount)} pct={Math.min(100,posCount*25)} color="#8b5cf6" />
+                    </div>
+                    <RepSection title="Resumen">{r.resumen}</RepSection>
+                    <RepSection title="Pronóstico">{r.pronostico}</RepSection>
+                    <RepList title="Objetivos a corto plazo" items={r.objetivos_corto} color="#30a46c" />
+                    <RepList title="Objetivos a largo plazo" items={r.objetivos_largo} color="#3b82f6" />
+                    <RepList title="Posibles riesgos a corto plazo" items={r.riesgos_corto} color="#e5484d" />
+                    <div style={{marginTop:20,paddingTop:12,borderTop:'1px solid #ddd',fontSize:'.64rem',color:'#999'}}>
+                      Generado con apoyo de IA en Momentum{profile?.name?` · Fisioterapeuta: ${profile.name}`:''} · Material de apoyo; no sustituye el juicio clínico profesional.
+                    </div>
+                  </>);
+                })()}
+              </div>
+            </>)}
           </div>
 
           <div className="card" style={{marginBottom:16}}>

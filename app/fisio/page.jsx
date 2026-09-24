@@ -68,6 +68,7 @@ export default function Fisio() {
   const [evalData, setEvalData] = useState({});
   const [dxData, setDxData] = useState({});
   const [savingEval, setSavingEval] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
   const [newPt, setNewPt] = useState(null);
   const [savingPt, setSavingPt] = useState(false);
   const [voiceText, setVoiceText] = useState('');
@@ -298,6 +299,39 @@ export default function Fisio() {
     const { data: ss } = await supabase.from('sessions').select('*').eq('patient_id', selPt.id).order('date', { ascending: false });
     setSessions(ss || []);
     setSavingSession(false); setNewSession(null); showToast('✓ Sesión guardada');
+  }
+
+  async function suggestTests() {
+    const dx = (dxData.diagnosis || selPt.diagnosis || '').trim();
+    if (dx.length < 3) return showToast('Escribe primero el diagnóstico/hipótesis en la sección de abajo');
+    setSuggesting(true);
+    const an = selPt.anamnesis || {};
+    const context = [an.reason, an.origin, an.aggrav, an.painMov ? `Dolor ${an.painMov}/10` : ''].filter(Boolean).join('. ');
+    const { data, error } = await supabase.functions.invoke('suggest-tests', { body: { diagnosis: dx, context } });
+    setSuggesting(false);
+    if (error) { let m = error.message; try { const j = await error.context.json(); if (j?.error) m = j.error; } catch (_) {} return showToast('Error: ' + m); }
+    if (data?.error) return showToast('Error: ' + data.error);
+    const existing = Array.isArray(evalData.special_tests) ? evalData.special_tests : [];
+    const names = new Set(existing.map(t => (t.name || '').toLowerCase()));
+    const add = [];
+    (data.groups || []).forEach(g => (g.tests || []).forEach(t => {
+      if (!names.has((t.name || '').toLowerCase())) {
+        add.push({ name: t.name, hypothesis: g.hypothesis, assesses: t.assesses || '', positive: t.positive || '', result: '' });
+        names.add((t.name || '').toLowerCase());
+      }
+    }));
+    setEvalData({ ...evalData, special_tests: [...existing, ...add] });
+    showToast(add.length ? `✓ ${add.length} prueba(s) sugerida(s) — marca el resultado` : 'Sin pruebas nuevas para agregar');
+  }
+
+  function setTestResult(idx, result) {
+    const arr = [...(evalData.special_tests || [])];
+    arr[idx] = { ...arr[idx], result: arr[idx].result === result ? '' : result };
+    setEvalData({ ...evalData, special_tests: arr });
+  }
+
+  function removeTest(idx) {
+    setEvalData({ ...evalData, special_tests: (evalData.special_tests || []).filter((_, i) => i !== idx) });
   }
 
   async function saveEvaluation() {
@@ -666,8 +700,45 @@ export default function Fisio() {
                 ))}
               </div>
             ))}
+            <div style={{margin:'12px 0'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:8}}>
+                <p style={{fontSize:'.7rem',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--grey)'}}>Pruebas especiales</p>
+                <button className="btn-ol" style={{padding:'6px 12px',fontSize:'.72rem'}} onClick={suggestTests} disabled={suggesting}>{suggesting?'Buscando…':'🔎 Sugerir pruebas (IA)'}</button>
+              </div>
+              {(() => {
+                const sts = Array.isArray(evalData.special_tests) ? evalData.special_tests : [];
+                if (!sts.length) return <p style={{fontSize:'.74rem',color:'var(--grey)'}}>Pulsa “Sugerir pruebas (IA)” y la IA propondrá, según el diagnóstico, las pruebas para corroborar o descartar. Luego marca el resultado de cada una.</p>;
+                const byHyp = {};
+                sts.forEach((t,i)=>{ (byHyp[t.hypothesis||'Otras'] = byHyp[t.hypothesis||'Otras']||[]).push({...t,_i:i}); });
+                return Object.entries(byHyp).map(([hyp,tests])=>(
+                  <div key={hyp} style={{marginBottom:10}}>
+                    <p style={{fontSize:'.74rem',fontWeight:600,marginBottom:6}}>{hyp}</p>
+                    {tests.map(t=>(
+                      <div key={t._i} style={{background:'var(--adim)',border:'1px solid var(--border)',borderRadius:9,padding:'8px 10px',marginBottom:6}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                          <div style={{minWidth:0}}>
+                            <strong style={{fontSize:'.8rem'}}>{t.name}</strong>
+                            {t.assesses && <p style={{fontSize:'.68rem',color:'var(--grey)'}}>{t.assesses}</p>}
+                            {t.positive && <p style={{fontSize:'.66rem',color:'var(--grey)'}}>➜ {t.positive}</p>}
+                          </div>
+                          <button onClick={()=>removeTest(t._i)} style={{background:'none',border:'none',color:'var(--grey)',fontSize:'.85rem',flexShrink:0}}>✕</button>
+                        </div>
+                        <div style={{display:'flex',gap:6,marginTop:6,flexWrap:'wrap'}}>
+                          {['Positiva','Negativa','No realizada'].map(res=>{
+                            const on = t.result===res;
+                            const col = res==='Positiva'?'var(--danger)':res==='Negativa'?'var(--ok)':'var(--grey)';
+                            return <button key={res} type="button" onClick={()=>setTestResult(t._i,res)}
+                              style={{padding:'4px 10px',borderRadius:14,fontSize:'.7rem',cursor:'pointer',border:'1px solid '+(on?col:'var(--dim)'),background:on?col:'none',color:on?'#1a1a1a':'var(--grey)'}}>{res}</button>;
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ));
+              })()}
+            </div>
             <div style={{marginBottom:8}}>
-              <label style={{fontSize:'.72rem',color:'var(--grey)'}}>Pruebas especiales / notas</label>
+              <label style={{fontSize:'.72rem',color:'var(--grey)'}}>Notas y observaciones</label>
               <textarea rows={2} value={evalData.notes||''} onChange={e=>setEvalData({...evalData,notes:e.target.value})} />
             </div>
 

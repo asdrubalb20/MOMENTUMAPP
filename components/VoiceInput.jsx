@@ -15,9 +15,12 @@ export default function VoiceInput({ value, onChange, placeholder, rows = 3 }) {
     const rec = new SR();
     rec.lang = 'es-ES'; rec.continuous = true; rec.interimResults = true;
     const base = value ? value + ' ' : '';
+    let finalT = '';
     rec.onresult = (e) => {
-      let finalT = '', interim = '';
-      for (let i = 0; i < e.results.length; i++) {
+      let interim = '';
+      // Empezar en e.resultIndex (no en 0): en Android Chrome los segmentos ya
+      // finalizados se reentregan y, si se recorren desde 0, se duplican.
+      for (let i = e.resultIndex; i < e.results.length; i++) {
         const t = e.results[i][0].transcript;
         if (e.results[i].isFinal) finalT += t + ' '; else interim += t;
       }

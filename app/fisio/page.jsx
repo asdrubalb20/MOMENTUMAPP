@@ -57,11 +57,9 @@ export default function Fisio() {
   const [freq, setFreq] = useState('3x/semana');
   const [saving, setSaving] = useState(false);
   const [profile, setProfile] = useState(null);
-  const [metrics, setMetrics] = useState({pts:0,today:0});
+  const [metrics, setMetrics] = useState({pts:0,today:0,month:0});
   const [customs, setCustoms] = useState([]);
-  const [appts, setAppts] = useState([]);
   const [newEx, setNewEx] = useState(null);
-  const [newAp, setNewAp] = useState({patient_id:'',date:'',time:'',notes:''});
   const [toast, setToast] = useState('');
   const [confirmClear, setConfirmClear] = useState(false);
   const [weekAssign, setWeekAssign] = useState(null);
@@ -81,6 +79,12 @@ export default function Fisio() {
   const [savingSession, setSavingSession] = useState(false);
   const [dashTab, setDashTab] = useState('hoy');
   const [gcal, setGcal] = useState(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [gq, setGq] = useState('');
+  const [daySel, setDaySel] = useState(null);
+  const [dayInfo, setDayInfo] = useState({});
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const avatarInputRef = useRef(null);
   const router = useRouter();
   const showToast = m => { setToast(m); setTimeout(() => setToast(''), 2800); };
 
@@ -92,7 +96,6 @@ export default function Fisio() {
     setUser(user);
     const { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).single();
     setProfile(prof);
-    const isAdmin = prof?.role === 'admin';
     const today = new Date().toISOString().split('T')[0];
     // clínica compartida: todos los fisios ven a TODOS los pacientes
     const { data } = await supabase.from('patients').select('*').order('created_at');
@@ -101,12 +104,11 @@ export default function Fisio() {
     const { data: att } = await supabase.from('attendance').select('patient_id').eq('fisio_id', user.id).eq('date', today);
     const ids = (att || []).map(a => a.patient_id);
     setAttToday(ids);
-    setMetrics({ pts: (data||[]).length, today: ids.length });
+    const monthStart = today.slice(0,8) + '01';
+    const { count: monthCount } = await supabase.from('sessions').select('id',{count:'exact',head:true}).eq('fisio_id', user.id).gte('date', monthStart);
+    setMetrics({ pts: (data||[]).length, today: ids.length, month: monthCount || 0 });
     const { data: ce } = await supabase.from('custom_exercises').select('*');
     setCustoms(ce || []);
-    const aq = supabase.from('appointments').select('*').gte('date', today).order('date').order('time').limit(10);
-    const { data: ap } = isAdmin ? await aq : await aq.eq('fisio_id', user.id);
-    setAppts(ap || []);
     loadGcal();
     if (typeof window !== 'undefined' && window.location.search.includes('gcal=ok')) {
       showToast('✓ Google Calendar conectado');
@@ -205,12 +207,28 @@ export default function Fisio() {
     setNewEx(null); showToast('✓ Ejercicio guardado'); init();
   }
 
-  async function addAppt() {
-    if (!newAp.date || !newAp.time) return showToast('Fecha y hora obligatorias');
-    const pt = patients.find(p=>p.id===newAp.patient_id);
-    await supabase.from('appointments').insert({ ...newAp, patient_id: newAp.patient_id||null,
-      patient_name: pt?.name || 'Sin ficha', fisio_id: user.id });
-    setNewAp({patient_id:'',date:'',time:'',notes:''}); init();
+  async function uploadAvatar(file) {
+    if (!file) return;
+    setUploadingAvatar(true);
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    const path = `${user.id}.${ext}`;
+    const { error } = await supabase.storage.from('avatars').upload(path, file, { upsert: true, cacheControl: '3600' });
+    if (error) { setUploadingAvatar(false); return showToast('Error subiendo la foto: ' + error.message); }
+    const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
+    const url = pub.publicUrl + '?v=' + Date.now();
+    await supabase.from('profiles').update({ avatar_url: url }).eq('id', user.id);
+    setProfile(p => ({ ...p, avatar_url: url }));
+    setUploadingAvatar(false);
+    showToast('✓ Foto actualizada');
+  }
+
+  async function openDaySummary(ev) {
+    if (!ev.patient) return;
+    setDaySel(s => s === ev.id ? null : ev.id);
+    if (dayInfo[ev.patient.id]) return;
+    const { count } = await supabase.from('sessions').select('id',{count:'exact',head:true}).eq('patient_id', ev.patient.id);
+    const p = patients.find(x => x.id === ev.patient.id);
+    setDayInfo(m => ({ ...m, [ev.patient.id]: { done: count || 0, planned: p?.plan_sessions || null, diagnosis: p?.diagnosis || '' } }));
   }
 
   async function openPatient(pt) {
@@ -344,6 +362,14 @@ export default function Fisio() {
     p.name.toLowerCase().includes(search.toLowerCase()) ||
     (p.diagnosis||'').toLowerCase().includes(search.toLowerCase()));
 
+  // búsqueda global (lupa del header): pacientes + ejercicios
+  const exFlat = [];
+  sections.forEach(s => (exercises[s.id]||[]).forEach(e => exFlat.push({ ...e, section: s.name, icon: s.icon })));
+  customs.forEach(c => { const s = sections.find(x=>x.id===c.section_id); exFlat.push({ ...c, section: s?.name||'', icon: s?.icon||'', custom:true }); });
+  const gqq = gq.trim().toLowerCase();
+  const gPts = gqq ? patients.filter(p => p.name.toLowerCase().includes(gqq) || (p.diagnosis||'').toLowerCase().includes(gqq)).slice(0,6) : [];
+  const gExs = gqq ? exFlat.filter(e => (e.name||'').toLowerCase().includes(gqq)).slice(0,6) : [];
+
   if (!user) return <p style={{padding:40}}>Cargando…</p>;
 
   return (
@@ -352,21 +378,68 @@ export default function Fisio() {
       <header style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:28}}>
         <div className="logo"><span className="w4">Mom</span><span className="w6">en</span><span className="w7">tum</span></div>
         <div style={{display:'flex',gap:10,alignItems:'center'}}>
+          <button className="btn-ol" title="Buscar pacientes / ejercicios" onClick={()=>{setSearchOpen(o=>!o);setGq('');}}
+            style={{padding:'6px 11px',fontSize:'1rem',lineHeight:1,...(searchOpen?{background:'var(--accent)',color:'#1a1a1a',borderColor:'var(--accent)'}:{})}}>🔍</button>
           <Notifications userId={user.id} />
           <button className="btn-ol" onClick={async()=>{await supabase.auth.signOut();router.push('/')}}>Salir</button>
         </div>
       </header>
 
+      {searchOpen && (
+        <div className="card" style={{marginBottom:16}}>
+          <input autoFocus placeholder="🔍 Buscar paciente o ejercicio…" value={gq}
+            onChange={e=>setGq(e.target.value)} style={{marginBottom: gqq?12:0}} />
+          {gqq && (
+            <div>
+              {gPts.length>0 && <p style={{fontSize:'.66rem',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--grey)',margin:'4px 0 6px'}}>Pacientes</p>}
+              {gPts.map(p => (
+                <div key={'gp'+p.id} onClick={()=>{setSearchOpen(false);setGq('');openPatient(p);}}
+                  style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'8px 0',borderTop:'1px solid var(--border)',cursor:'pointer'}}>
+                  <div style={{minWidth:0}}>
+                    <strong style={{fontSize:'.85rem'}}>{p.name}</strong>
+                    <p style={{fontSize:'.72rem',color:'var(--grey)'}}>{p.diagnosis||'Sin diagnóstico'}</p>
+                  </div>
+                  <span style={{color:'var(--accent)',fontSize:'.8rem'}}>Ver ficha ›</span>
+                </div>
+              ))}
+              {gExs.length>0 && <p style={{fontSize:'.66rem',letterSpacing:'.1em',textTransform:'uppercase',color:'var(--grey)',margin:'12px 0 6px'}}>Ejercicios</p>}
+              {gExs.map((e,i) => (
+                <div key={'ge'+i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'8px 0',borderTop:'1px solid var(--border)'}}>
+                  <span style={{fontSize:'.82rem'}}>{e.icon} {e.name} {e.custom && <em style={{fontSize:'.66rem',color:'var(--accent)'}}>· propio</em>}</span>
+                  <span style={{fontSize:'.7rem',color:'var(--grey)'}}>{e.section}{e.sets?` · ${e.sets}`:''}</span>
+                </div>
+              ))}
+              {!gPts.length && !gExs.length && <p style={{fontSize:'.8rem',color:'var(--grey)'}}>Sin resultados para “{gq}”.</p>}
+            </div>
+          )}
+        </div>
+      )}
+
       {!selPt ? (
         <>
-          <div className="card" style={{marginBottom:14,display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:12}}>
-            <div>
-              <strong>{profile?.name}</strong> {profile?.role==='admin' && <span style={{fontSize:'.65rem',color:'var(--ok)'}}>ADMIN</span>}
-              <p style={{fontSize:'.75rem',color:'var(--grey)'}}>{user.email}{profile?.phone?` · ${profile.phone}`:''}</p>
+          <div className="card" style={{marginBottom:14}}>
+            <div style={{display:'flex',gap:14,alignItems:'center',flexWrap:'wrap'}}>
+              <div onClick={()=>avatarInputRef.current?.click()} title="Cambiar foto de perfil"
+                style={{width:64,height:64,borderRadius:'50%',flexShrink:0,cursor:'pointer',overflow:'hidden',position:'relative',
+                  background:'var(--adim)',border:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                {profile?.avatar_url
+                  ? <img src={profile.avatar_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} />
+                  : <span style={{fontSize:'1.5rem',fontWeight:700,color:'var(--grey)'}}>{(profile?.name||'?').trim().charAt(0).toUpperCase()}</span>}
+                <span style={{position:'absolute',bottom:0,right:0,background:'var(--accent)',color:'#1a1a1a',fontSize:'.62rem',padding:'1px 5px',borderTopLeftRadius:7}}>{uploadingAvatar?'…':'✎'}</span>
+              </div>
+              <input ref={avatarInputRef} type="file" accept="image/*" style={{display:'none'}} onChange={e=>uploadAvatar(e.target.files?.[0])} />
+              <div style={{minWidth:0,flex:1}}>
+                <strong style={{fontSize:'1.05rem'}}>{profile?.name}</strong> {profile?.role==='admin' && <span style={{fontSize:'.6rem',color:'var(--ok)'}}>ADMIN</span>}
+                <p style={{fontSize:'.75rem',color:'var(--grey)'}}>{user.email}{profile?.phone?` · ${profile.phone}`:''}</p>
+              </div>
             </div>
-            <div style={{display:'flex',gap:20,textAlign:'center'}}>
-              <div><div style={{fontSize:'1.6rem',fontWeight:700}}>{metrics.pts}</div><div style={{fontSize:'.62rem',color:'var(--grey)',textTransform:'uppercase',letterSpacing:'.1em'}}>Pacientes</div></div>
-              <div><div style={{fontSize:'1.6rem',fontWeight:700}}>{metrics.today}</div><div style={{fontSize:'.62rem',color:'var(--grey)',textTransform:'uppercase',letterSpacing:'.1em'}}>Atendidos hoy</div></div>
+            <div style={{display:'flex',gap:8,marginTop:14,flexWrap:'wrap'}}>
+              {[['Pacientes',metrics.pts],['Atendidos hoy',metrics.today],['Sesiones (mes)',metrics.month],['Agenda hoy',gcal?.connected?(gcal.events?.length||0):'—']].map(([l,v])=>(
+                <div key={l} style={{flex:'1 1 70px',textAlign:'center',background:'var(--adim)',border:'1px solid var(--border)',borderRadius:10,padding:'10px 6px'}}>
+                  <div style={{fontSize:'1.35rem',fontWeight:700}}>{v}</div>
+                  <div style={{fontSize:'.57rem',color:'var(--grey)',textTransform:'uppercase',letterSpacing:'.07em'}}>{l}</div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -396,40 +469,32 @@ export default function Fisio() {
               <p style={{fontSize:'.78rem',color:'var(--grey)'}}>No tienes eventos hoy en tu calendario.</p>
             ) : (
               gcal.events.map(ev => (
-                <div key={ev.id} onClick={()=>ev.patient && openPatientById(ev.patient.id)}
-                  style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'9px 0',borderTop:'1px solid var(--border)',cursor:ev.patient?'pointer':'default'}}>
-                  <div style={{minWidth:0}}>
-                    <span style={{fontSize:'.85rem'}}><strong>{ev.time}</strong> · {ev.patient ? ev.patient.name : ev.summary}</span>
-                    {!ev.patient && <p style={{fontSize:'.66rem',color:'var(--grey)'}}>Sin paciente enlazado{ev.guests?.length?` · ${ev.guests[0]}`:''}</p>}
+                <div key={ev.id} style={{borderTop:'1px solid var(--border)'}}>
+                  <div onClick={()=>ev.patient && openDaySummary(ev)}
+                    style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,padding:'9px 0',cursor:ev.patient?'pointer':'default'}}>
+                    <div style={{minWidth:0}}>
+                      <span style={{fontSize:'.85rem'}}><strong>{ev.time}</strong> · {ev.patient ? ev.patient.name : ev.summary}</span>
+                      {!ev.patient && <p style={{fontSize:'.66rem',color:'var(--grey)'}}>Sin paciente enlazado{ev.guests?.length?` · ${ev.guests[0]}`:''}</p>}
+                    </div>
+                    {ev.patient ? <span style={{color:'var(--accent)',fontSize:'.8rem'}}>{daySel===ev.id?'Ocultar ▲':'Ver ▾'}</span> : <span style={{fontSize:'.62rem',color:'var(--grey)'}}>sin ficha</span>}
                   </div>
-                  {ev.patient ? <span style={{color:'var(--accent)'}}>Ver ficha ›</span> : <span style={{fontSize:'.62rem',color:'var(--grey)'}}>sin ficha</span>}
+                  {ev.patient && daySel===ev.id && (
+                    <div style={{background:'var(--adim)',border:'1px solid var(--border)',borderRadius:10,padding:'10px 12px',margin:'0 0 10px'}}>
+                      <p style={{fontSize:'.66rem',letterSpacing:'.08em',textTransform:'uppercase',color:'var(--grey)'}}>Diagnóstico</p>
+                      <p style={{fontSize:'.85rem',marginBottom:8}}>{dayInfo[ev.patient.id]?.diagnosis || <span style={{color:'var(--grey)'}}>Sin diagnóstico registrado</span>}</p>
+                      <p style={{fontSize:'.82rem',marginBottom:10}}>
+                        Sesión actual: <strong>{(dayInfo[ev.patient.id]?.done ?? 0) + 1}</strong>
+                        {' · '}Realizadas: <strong>{dayInfo[ev.patient.id]?.done ?? 0}</strong>
+                        {dayInfo[ev.patient.id]?.planned ? <span style={{color:'var(--grey)'}}> / {dayInfo[ev.patient.id].planned} del ciclo</span> : null}
+                      </p>
+                      <button className="btn" style={{padding:'7px 14px',fontSize:'.78rem'}} onClick={()=>openPatientById(ev.patient.id)}>Abrir ficha completa ›</button>
+                    </div>
+                  )}
                 </div>
               ))
             )}
           </div>
 
-          <div className="card" style={{marginBottom:14}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-              <strong style={{fontSize:'.8rem'}}>📅 Próximas citas</strong>
-            </div>
-            {appts.map(a=>(
-              <div key={a.id} style={{display:'flex',justifyContent:'space-between',fontSize:'.8rem',padding:'6px 0',borderTop:'1px solid var(--border)'}}>
-                <span>{a.date} {String(a.time).slice(0,5)} — {a.patient_name}</span>
-                <button className="btn-ol" style={{padding:'2px 8px',fontSize:'.65rem'}}
-                  onClick={async()=>{await supabase.from('appointments').delete().eq('id',a.id);init();}}>✕</button>
-              </div>
-            ))}
-            {!appts.length && <p style={{fontSize:'.75rem',color:'var(--grey)'}}>Sin citas próximas</p>}
-            <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:10}}>
-              <select value={newAp.patient_id} onChange={e=>setNewAp({...newAp,patient_id:e.target.value})} style={{flex:2,minWidth:140}}>
-                <option value="">Paciente…</option>
-                {patients.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <input type="date" value={newAp.date} onChange={e=>setNewAp({...newAp,date:e.target.value})} style={{flex:1,minWidth:130}} />
-              <input type="time" value={newAp.time} onChange={e=>setNewAp({...newAp,time:e.target.value})} style={{flex:1,minWidth:100}} />
-              <button className="btn" style={{padding:'8px 14px',fontSize:'.75rem'}} onClick={addAppt}>+ Cita</button>
-            </div>
-          </div>
           </>)}
 
           {dashTab==='pacientes' && (<>
